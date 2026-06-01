@@ -1,7 +1,7 @@
 import os
 import logging
 import json
-from vkbottle import Callback, GroupEventType, Keyboard
+from vkbottle import Callback, GroupEventType, Keyboard, PhotoMessageUploader
 from vkbottle.bot import Bot, Message, MessageEvent
 
 # Load environment variables
@@ -20,8 +20,9 @@ api_key = os.getenv("VK_API2")
 if not api_key:
     logger.error("VK_API2 key is not defined in .env file.")
 bot = Bot(api_key)
+photo_uploader = PhotoMessageUploader(bot.api)
 
-# Load scenario with UTF-8 encoding to support Cyrillic characters correctly
+
 try:
     with open('scenario.json', 'r', encoding='utf-8') as file:
         scenario = json.load(file)
@@ -157,7 +158,17 @@ async def start_handler(message: Message):
         
     # Start with initial stats
     keyboard_json = build_keyboard("Start", step_data, INITIAL_MONEY, INITIAL_GUILBLE, INITIAL_STRESS)
-    await message.answer(step_data["Message"], keyboard=keyboard_json)
+    
+    # Check for Embed0 (initial message image)
+    attachment_str = None
+    embeds = step_data.get("Embeds", {})
+    filename = embeds.get("Embed0")
+    if filename:
+        file_path = os.path.join("embeds", filename)
+        if os.path.exists(file_path):
+            attachment_str = await photo_uploader.upload(file_path, peer_id=message.peer_id)
+            
+    await message.answer(step_data["Message"], keyboard=keyboard_json, attachment=attachment_str)
 
 
 @bot.on.raw_event(GroupEventType.MESSAGE_EVENT, MessageEvent)
@@ -188,8 +199,17 @@ async def handle_callback(event: MessageEvent):
                 message_text = step_data["Message"]
                 if target != "Start":
                     message_text += format_current_stats(money, guilble, stress)
+                
+                # Check for Embed0 (initial message image)
+                attachment_str = None
+                embeds = step_data.get("Embeds", {})
+                filename = embeds.get("Embed0")
+                if filename:
+                    file_path = os.path.join("embeds", filename)
+                    if os.path.exists(file_path):
+                        attachment_str = await photo_uploader.upload(file_path, peer_id=event.peer_id)
                     
-                await event.edit_message(message=message_text, keyboard=keyboard_json)
+                await event.edit_message(message=message_text, keyboard=keyboard_json, attachment=attachment_str or "")
                 await event.send_empty_answer()
                 
         elif action == "show_reply":
@@ -214,6 +234,15 @@ async def handle_callback(event: MessageEvent):
                 
                 # Append consequences report to outcome text
                 final_text = reply_text + format_stats_change(new_money, new_guilble, new_stress, cons)
+                
+                # Check for choice embed: Embed1 for choice_id "1", etc.
+                attachment_str = None
+                embeds = step_data.get("Embeds", {})
+                filename = embeds.get(f"Embed{choice_id}")
+                if filename:
+                    file_path = os.path.join("embeds", filename)
+                    if os.path.exists(file_path):
+                        attachment_str = await photo_uploader.upload(file_path, peer_id=event.peer_id)
                 
                 # Determine next transition
                 next_step = get_next_step(step)
@@ -241,7 +270,7 @@ async def handle_callback(event: MessageEvent):
                     )
                     
                 keyboard_json = reply_keyboard.get_json()
-                await event.edit_message(message=final_text, keyboard=keyboard_json)
+                await event.edit_message(message=final_text, keyboard=keyboard_json, attachment=attachment_str or "")
                 await event.send_empty_answer()
                 
     except Exception as e:
