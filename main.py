@@ -181,8 +181,8 @@ async def start_handler(message: Message):
     
     # Check for Embed0 (initial message image)
     attachment_str = None
-    embeds = step_data.get("Embeds", {})
-    filename = embeds.get("Embed0")
+    embeds = step_data.get("Embeds") or step_data.get("embeds") or {}
+    filename = embeds.get("Embed0") or embeds.get("embed0")
     if filename:
         file_path = os.path.join("embeds", filename)
         if os.path.exists(file_path):
@@ -280,11 +280,15 @@ async def handle_callback(event: MessageEvent):
                 message_text = step_data["Message"]
                 if target != "Start" and not is_ending(target):
                     message_text += format_current_stats(money, guilble, stress)
+                elif is_ending(target):
+                    ending_name = step_data.get("Name") or step_data.get("name", "")
+                    if ending_name:
+                        message_text += f"\n\Концовка '{ending_name}' получена!"
                 
                 # Check for Embed0 (initial message image)
                 attachment_str = None
-                embeds = step_data.get("Embeds", {})
-                filename = embeds.get("Embed0")
+                embeds = step_data.get("Embeds") or step_data.get("embeds") or {}
+                filename = embeds.get("Embed0") or embeds.get("embed0")
                 if filename and not filename.startswith("photo"):
                     file_path = os.path.join("embeds", filename)
                     if os.path.exists(file_path):
@@ -324,8 +328,8 @@ async def handle_callback(event: MessageEvent):
                 
                 # Check for choice embed: Embed1 for choice_id "1", etc.
                 attachment_str = None
-                embeds = step_data.get("Embeds", {})
-                filename = embeds.get(f"Embed{choice_id}")
+                embeds = step_data.get("Embeds") or step_data.get("embeds") or {}
+                filename = embeds.get(f"Embed{choice_id}") or embeds.get(f"embed{choice_id}")
                 if filename and not filename.startswith("photo"):
                     file_path = os.path.join("embeds", filename)
                     if os.path.exists(file_path):
@@ -374,6 +378,8 @@ async def handle_callback(event: MessageEvent):
                 keyboard_json = reply_keyboard.get_json()
                 await event.edit_message(message=final_text, keyboard=keyboard_json, attachment=attachment_str or "")
                 await event.send_empty_answer()
+
+
 
         elif action == "show_result":
             # 1. Format the final result text
