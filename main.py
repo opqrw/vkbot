@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 # Game Constants
 INITIAL_MONEY = 50000
-INITIAL_GUILBLE = 0
+INITIAL_GUILBLE = 50
 INITIAL_STRESS = 0
 
-api_key = os.getenv("VK_API2")
+api_key = os.getenv("VK_API")
 if not api_key:
-    logger.error("VK_API2 key is not defined in .env file.")
+    logger.error("VK_API key is not defined in .env file.")
 bot = Bot(api_key)
 photo_uploader = PhotoMessageUploader(bot.api)
 
@@ -70,9 +70,10 @@ def is_ending(step_name: str) -> bool:
 
 def format_current_stats(money: int, guilble: int, stress: int) -> str:
     """Formats a compact status bar appended to case descriptions."""
+    money_display = "Счета заморожены" if money == -1 else f"{money:,} руб."
     return (
         f"\n---\n"
-        f"💰 Деньги: {money:,} руб. | 🧠 Доверчивость: {guilble} | ⚡ Стресс: {stress}"
+        f"💰 Деньги: {money_display} \n 🧠 Доверчивость: {guilble} \n ⚡ Стресс: {stress}"
     )
 
 
@@ -81,12 +82,17 @@ def format_stats_change(money: int, guilble: int, stress: int, cons: dict) -> st
     lines = ["\n---", "📊 Ваши показатели:"]
     
     # Format Money change
-    money_str = f"💰 Деньги: {money:,} руб."
-    if cons and cons.get("Money", 0) != 0:
-        val = cons["Money"]
-        sign = "+" if val > 0 else ""
-        emoji = "🟢" if val > 0 else "🔴"
-        money_str += f" ({emoji} {sign}{val:,} руб.)"
+    if money == -1:
+        money_str = "💰 Деньги: Счета заморожены"
+        if cons and cons.get("Money", 0) == -1:
+            money_str += " (🔴 Счета заморожены)"
+    else:
+        money_str = f"💰 Деньги: {money:,} руб."
+        if cons and cons.get("Money", 0) != 0:
+            val = cons["Money"]
+            sign = "+" if val > 0 else ""
+            emoji = "🟢" if val > 0 else "🔴"
+            money_str += f" ({emoji} {sign}{val:,} руб.)"
     lines.append(money_str)
     
     # Format Gullibility change (Guilble key in JSON)
@@ -110,7 +116,7 @@ def format_stats_change(money: int, guilble: int, stress: int, cons: dict) -> st
     return "\n".join(lines)
 
 
-def build_keyboard(step_name: str, step_data: dict, money: int, guilble: int, stress: int, history: dict) -> str:
+def build_keyboard(step_name: str, step_data: dict, money: int, guilble: int, stress: int, history: dict, from_step: str = None) -> str:
     """Dynamically builds an inline keyboard with stats state propagation."""
     keyboard = Keyboard(inline=True)
     buttons = step_data.get("Buttons", {})
@@ -131,6 +137,7 @@ def build_keyboard(step_name: str, step_data: dict, money: int, guilble: int, st
                 "action": "show_reply",
                 "step": step_name,
                 "choice_id": choice_id,
+                "from_step": from_step,
                 "money": money,
                 "guilble": guilble,
                 "stress": stress,
@@ -168,7 +175,7 @@ def build_keyboard(step_name: str, step_data: dict, money: int, guilble: int, st
     return keyboard.get_json()
 
 
-@bot.on.message()
+@bot.on.message(text='Начать')
 async def start_handler(message: Message):
     """Triggers the start of the scenario when any message is received."""
     step_data = scenario.get("Start")
@@ -226,7 +233,10 @@ async def handle_callback(event: MessageEvent):
                         
                         # Apply consequences on the transition
                         cons = interlude_data.get("Consequences") or interlude_data.get("consequences") or {}
-                        interlude_money = money + cons.get("Money", 0)
+                        if money == -1 or cons.get("Money", 0) == -1:
+                            interlude_money = -1
+                        else:
+                            interlude_money = money + cons.get("Money", 0)
                         interlude_guilble = guilble + cons.get("Guilble", 0)
                         interlude_stress = stress + cons.get("Stress", 0)
                         
@@ -243,19 +253,19 @@ async def handle_callback(event: MessageEvent):
                         else:
                             attachment_str = filename
                             
+                        payload = {
+                            "action": "go_to",
+                            "target": target,
+                            "from_step": from_step,
+                            "interlude_done": True,
+                            "money": interlude_money,
+                            "guilble": interlude_guilble,
+                            "stress": interlude_stress,
+                            "history": history
+                        }
+                        
                         interlude_keyboard = Keyboard(inline=True)
-                        interlude_keyboard.add(
-                            Callback("Дальше", payload={
-                                "action": "go_to",
-                                "target": target,
-                                "from_step": from_step,
-                                "interlude_done": True,
-                                "money": interlude_money,
-                                "guilble": interlude_guilble,
-                                "stress": interlude_stress,
-                                "history": history
-                            })
-                        )
+                        interlude_keyboard.add(Callback("Дальше", payload=payload))
                         keyboard_json = interlude_keyboard.get_json()
                         await event.edit_message(message=message_text, keyboard=keyboard_json, attachment=attachment_str or "")
                         await event.send_empty_answer()
@@ -274,7 +284,7 @@ async def handle_callback(event: MessageEvent):
                     )
                     keyboard_json = ending_keyboard.get_json()
                 else:
-                    keyboard_json = build_keyboard(target, step_data, money, guilble, stress, history)
+                    keyboard_json = build_keyboard(target, step_data, money, guilble, stress, history, from_step)
                 
                 # Append compact status bar for case steps (except Start screen and Endings)
                 message_text = step_data["Message"]
@@ -283,7 +293,7 @@ async def handle_callback(event: MessageEvent):
                 elif is_ending(target):
                     ending_name = step_data.get("Name") or step_data.get("name", "")
                     if ending_name:
-                        message_text += f"\n\Концовка '{ending_name}' получена!"
+                        message_text += f"\n\nКонцовка \"{ending_name}\" получена!"
                 
                 # Check for Embed0 (initial message image)
                 attachment_str = None
@@ -302,6 +312,7 @@ async def handle_callback(event: MessageEvent):
         elif action == "show_reply":
             step = payload.get("step")
             choice_id = payload.get("choice_id")
+            from_step = payload.get("from_step")
             
             if step in scenario:
                 step_data = scenario[step]
@@ -315,7 +326,10 @@ async def handle_callback(event: MessageEvent):
                 cons_block = step_data.get("Consequences", {})
                 cons = cons_block.get(f"cons{choice_id}", {})
                 
-                new_money = money + cons.get("Money", 0)
+                if money == -1 or cons.get("Money", 0) == -1:
+                    new_money = -1
+                else:
+                    new_money = money + cons.get("Money", 0)
                 new_guilble = guilble + cons.get("Guilble", 0)
                 new_stress = stress + cons.get("Stress", 0)
                 
@@ -339,8 +353,28 @@ async def handle_callback(event: MessageEvent):
                     
                 # Determine next transition
                 next_step = None
-                goto_block = step_data.get("Go-to") or step_data.get("go-to")
-                if isinstance(goto_block, dict):
+                
+                # Check if there is an interlude for from_step that has its own Go-to
+                goto_block = None
+                if from_step:
+                    interludes = step_data.get("Interludes") or step_data.get("interludes")
+                    if isinstance(interludes, dict) and from_step in interludes:
+                        interlude_data = interludes[from_step]
+                        goto_block = (
+                            interlude_data.get("Go-to")
+                            or interlude_data.get("go-to")
+                            or interlude_data.get("Goto")
+                            or interlude_data.get("goto")
+                        )
+                
+                # Fallback to the step's default Go-to
+                if not goto_block:
+                    goto_block = step_data.get("Go-to") or step_data.get("go-to")
+                
+                if isinstance(goto_block, str):
+                    if goto_block in scenario:
+                        next_step = goto_block
+                elif isinstance(goto_block, dict):
                     # Check both ReplyX and replyX
                     target_step = goto_block.get(f"Reply{choice_id}") or goto_block.get(f"reply{choice_id}")
                     if target_step:
@@ -384,7 +418,8 @@ async def handle_callback(event: MessageEvent):
         elif action == "show_result":
             # 1. Format the final result text
             result_text = "🏆 Итоги квеста\n\n"
-            result_text += f"💰 Деньги: {money:,} руб.\n"
+            money_display = "Счета заморожены" if money == -1 else f"{money:,} руб."
+            result_text += f"💰 Деньги: {money_display}\n"
             result_text += f"🧠 Доверчивость: {guilble}\n"
             result_text += f"⚡ Стресс: {stress}\n\n"
             result_text += "📝 История ваших действий:\n"
