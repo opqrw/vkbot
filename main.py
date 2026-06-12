@@ -35,7 +35,7 @@ except Exception as e:
 
 def get_next_step(current_step: str) -> str | None:
     """Finds the next logical step in the scenario after the current one."""
-    steps = list(scenario.keys())
+    steps = [k for k in scenario.keys() if k not in ("GuilbleStats", "StressStats")]
     try:
         idx = steps.index(current_step)
         if idx + 1 < len(steps):
@@ -89,6 +89,56 @@ def save_result(user_id: int | str, money: int, guilble: int, stress: int, endin
         logger.info(f"Successfully saved result to CSV: {row}")
     except Exception as e:
         logger.error(f"Failed to save result to CSV: {e}")
+
+
+def get_stat_description(value: int, stats_dict: dict) -> str:
+    """Finds the description in stats_dict that covers the given value."""
+    parsed = []
+    for key, desc in stats_dict.items():
+        clean_key = key.strip()
+        if clean_key.endswith("+"):
+            try:
+                val = int(clean_key[:-1])
+                parsed.append((val, float('inf'), desc))
+            except ValueError:
+                pass
+        elif "-" in clean_key:
+            try:
+                parts = clean_key.split("-")
+                low = int(parts[0])
+                high = int(parts[1])
+                parsed.append((low, high, desc))
+            except ValueError:
+                pass
+                
+    if not parsed:
+        return ""
+        
+    # Sort the intervals by their lower bound
+    parsed.sort(key=lambda x: x[0])
+    
+    # Check if the value is less than the first interval's lower bound
+    if value < parsed[0][0]:
+        return parsed[0][2]
+        
+    # Check if the value is greater than or equal to the last interval's lower bound
+    if value >= parsed[-1][0]:
+        return parsed[-1][2]
+        
+    # Otherwise, check which interval it falls into or is closest to
+    for i in range(len(parsed) - 1):
+        low_curr, high_curr, desc_curr = parsed[i]
+        low_next, high_next, desc_next = parsed[i+1]
+        
+        if low_curr <= value <= high_curr:
+            return desc_curr
+            
+        if high_curr < value < low_next:
+            # Resolve the gap by assigning to the closer interval
+            mid = (high_curr + low_next) / 2
+            return desc_curr if value < mid else desc_next
+            
+    return parsed[-1][2]
 
 
 def format_current_stats(money: int, guilble: int, stress: int) -> str:
@@ -464,10 +514,19 @@ async def handle_callback(event: MessageEvent):
                 money_display = "Микрозайм"
             else:
                 money_display = f"{money:,} руб."
-            result_text += f"💰 Деньги: {money_display}\n"
+            result_text += f"💰 Деньги: {money_display}\n\n"
+            
             result_text += f"🧠 Доверчивость: {guilble}\n"
-            result_text += f"⚡ Стресс: {stress}\n\n"
-            result_text += "📝 История ваших действий:\n"
+            guilble_desc = get_stat_description(guilble, scenario.get("GuilbleStats", {}))
+            if guilble_desc:
+                result_text += f"{guilble_desc}\n\n"
+                
+            result_text += f"⚡ Стресс: {stress}\n"
+            stress_desc = get_stat_description(stress, scenario.get("StressStats", {}))
+            if stress_desc:
+                result_text += f"{stress_desc}\n\n"
+                
+            result_text += "📝 Разбор полётов:\n"
             
             # Sort the history items by scenario keys order to show actions in logical order
             # The scenario keys represent the chronological order of cases: Case 1, Case 2, Case 3, Case 4, etc.
