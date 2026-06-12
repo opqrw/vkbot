@@ -70,14 +70,19 @@ def is_ending(step_name: str) -> bool:
 
 def format_current_stats(money: int, guilble: int, stress: int) -> str:
     """Formats a compact status bar appended to case descriptions."""
-    money_display = "Счета заморожены" if money == -1 else f"{money:,} руб."
+    if money == -1:
+        money_display = "Счета заморожены"
+    elif money == -2:
+        money_display = "Микрозайм"
+    else:
+        money_display = f"{money:,} руб."
     return (
         f"\n---\n"
         f"💰 Деньги: {money_display} \n 🧠 Доверчивость: {guilble} \n ⚡ Стресс: {stress}"
     )
 
 
-def format_stats_change(money: int, guilble: int, stress: int, cons: dict) -> str:
+def format_stats_change(money: int, guilble: int, stress: int, cons: dict, old_money: int = None) -> str:
     """Formats a detailed statistics report showing exact changes in values."""
     lines = ["\n---", "📊 Ваши показатели:"]
     
@@ -86,6 +91,9 @@ def format_stats_change(money: int, guilble: int, stress: int, cons: dict) -> st
         money_str = "💰 Деньги: Счета заморожены"
         if cons and cons.get("Money", 0) == -1:
             money_str += " (🔴 Счета заморожены)"
+    elif money == -2 or (cons and cons.get("Money", 0) == -2):
+        display_money = old_money if old_money is not None else INITIAL_MONEY
+        money_str = f"💰 Деньги: {display_money:,} руб."
     else:
         money_str = f"💰 Деньги: {money:,} руб."
         if cons and cons.get("Money", 0) != 0:
@@ -235,13 +243,15 @@ async def handle_callback(event: MessageEvent):
                         cons = interlude_data.get("Consequences") or interlude_data.get("consequences") or {}
                         if money == -1 or cons.get("Money", 0) == -1:
                             interlude_money = -1
+                        elif money == -2 or cons.get("Money", 0) == -2:
+                            interlude_money = -2
                         else:
                             interlude_money = money + cons.get("Money", 0)
                         interlude_guilble = guilble + cons.get("Guilble", 0)
                         interlude_stress = stress + cons.get("Stress", 0)
                         
                         if cons:
-                            message_text += format_stats_change(interlude_money, interlude_guilble, interlude_stress, cons)
+                            message_text += format_stats_change(interlude_money, interlude_guilble, interlude_stress, cons, old_money=money)
                             
                         attachment_str = None
                         embeds = interlude_data.get("Embeds") or interlude_data.get("embeds") or {}
@@ -328,6 +338,8 @@ async def handle_callback(event: MessageEvent):
                 
                 if money == -1 or cons.get("Money", 0) == -1:
                     new_money = -1
+                elif money == -2 or cons.get("Money", 0) == -2:
+                    new_money = -2
                 else:
                     new_money = money + cons.get("Money", 0)
                 new_guilble = guilble + cons.get("Guilble", 0)
@@ -338,7 +350,7 @@ async def handle_callback(event: MessageEvent):
                 new_history[step] = reply_key
                 
                 # Append consequences report to outcome text
-                final_text = reply_text + format_stats_change(new_money, new_guilble, new_stress, cons)
+                final_text = reply_text + format_stats_change(new_money, new_guilble, new_stress, cons, old_money=money)
                 
                 # Check for choice embed: Embed1 for choice_id "1", etc.
                 attachment_str = None
@@ -418,7 +430,12 @@ async def handle_callback(event: MessageEvent):
         elif action == "show_result":
             # 1. Format the final result text
             result_text = "🏆 Итоги квеста\n\n"
-            money_display = "Счета заморожены" if money == -1 else f"{money:,} руб."
+            if money == -1:
+                money_display = "Счета заморожены"
+            elif money == -2:
+                money_display = "Микрозайм"
+            else:
+                money_display = f"{money:,} руб."
             result_text += f"💰 Деньги: {money_display}\n"
             result_text += f"🧠 Доверчивость: {guilble}\n"
             result_text += f"⚡ Стресс: {stress}\n\n"
