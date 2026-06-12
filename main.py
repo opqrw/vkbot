@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import csv
 from vkbottle import Callback, GroupEventType, Keyboard, PhotoMessageUploader
 from vkbottle.bot import Bot, Message, MessageEvent
 
@@ -66,6 +67,28 @@ def is_ending(step_name: str) -> bool:
         return suffix.isdigit()
     return False
 
+
+def save_result(user_id: int | str, money: int, guilble: int, stress: int, ending: str):
+    """Saves completion results to results.csv with semicolon delimiter."""
+    dir_path = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(dir_path, "results.csv")
+    
+    if money == -1:
+        money_val = "Счета заморожены"
+    elif money == -2:
+        money_val = "Микрозайм"
+    else:
+        money_val = str(money)
+        
+    row = [str(user_id), money_val, str(guilble), str(stress), ending]
+    
+    try:
+        with open(file_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(row)
+        logger.info(f"Successfully saved result to CSV: {row}")
+    except Exception as e:
+        logger.error(f"Failed to save result to CSV: {e}")
 
 
 def format_current_stats(money: int, guilble: int, stress: int) -> str:
@@ -293,6 +316,11 @@ async def handle_callback(event: MessageEvent):
                         })
                     )
                     keyboard_json = ending_keyboard.get_json()
+                    
+                    # Save the walkthrough result
+                    user_id = getattr(event, "user_id", None) or getattr(event, "peer_id", None) or "Unknown"
+                    ending_name = step_data.get("Name") or step_data.get("name") or target
+                    save_result(user_id, money, guilble, stress, ending_name)
                 else:
                     keyboard_json = build_keyboard(target, step_data, money, guilble, stress, history, from_step)
                 

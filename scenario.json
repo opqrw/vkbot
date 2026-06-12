@@ -250,7 +250,7 @@
         "Consequences": {
             "cons1": {
                 "Money": -30000,
-                "Guilble": 25,
+                "Guilble": 30,
                 "Stress": 25
             },
             "cons2": {
@@ -473,7 +473,7 @@
          "Consequences": {
             "cons1": {
                 "Money": -1,
-                "Guilble": 35,
+                "Guilble": 30,
                 "Stress": 30
             },
             "cons2": {
